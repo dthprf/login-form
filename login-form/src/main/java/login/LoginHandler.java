@@ -1,4 +1,6 @@
 package login;
 
-public class LoginHandler {
+import com.sun.net.httpserver.HttpHandler;
+
+public class LoginHandler implements HttpHandler {
 }
