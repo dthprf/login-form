@@ -4,7 +4,7 @@ public class User {
 
     private int userId;
     private String login;
-    private String password;
+    private Integer password;
 
     public int getUserId() {
         return userId;
@@ -22,11 +22,11 @@ public class User {
         this.login = login;
     }
 
-    public String getPassword() {
+    public Integer getPassword() {
         return password;
     }
 
-    public void setPassword(String password) {
+    public void setPassword(Integer password) {
         this.password = password;
     }
 }
