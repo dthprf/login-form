@@ -2,32 +2,29 @@ package login.Data;
 
 import login.Model.User;
 
-import javax.jws.soap.SOAPBinding;
 import java.sql.*;
 
 public class PostgresUserDAO implements UserDAO {
 
     public User getUserData(Integer password, String login) {
+
         User user = null;
 
-        String query = "SELECT id, login FROM userlogins WHERE login = ? AND password = ?;";
+        String query = "SELECT id, login FROM userlogins WHERE login like '" + login + "' AND password=" + password + ";";
 
         try {
             Connection connection = DBConnection.getConnection();
-            PreparedStatement preparedStatement = connection.prepareStatement(query);
+            Statement statement = connection.createStatement();
+            ResultSet resultSet = statement.executeQuery(query);
 
-            preparedStatement.setString(1, login);
-            preparedStatement.setInt(2, password);
-
-            ResultSet resultSet = preparedStatement.executeQuery();
-
-            if(resultSet.next()) {
-                user.setLogin(resultSet.getString("login"));
-                user.setUserId(resultSet.getInt("id"));
-                connection.close();
-                preparedStatement.close();
-                return user;
+            if (resultSet.next()) {
+                user = extractUser(resultSet);
             }
+
+
+            statement.close();
+            resultSet.close();
+            connection.close();
 
         } catch (SQLException e) {
             e.printStackTrace();
@@ -36,11 +33,11 @@ public class PostgresUserDAO implements UserDAO {
         return user;
     }
 
+
     public User getById(Integer id) {
         User user = new User();
 
-        String query = "SELECT id, login FROM users WHERE id =" + id;
-
+        String query = "SELECT id, login FROM userlogins WHERE id =" + id;
 
         try {
             Connection connection = DBConnection.getConnection();

@@ -30,66 +30,73 @@ public class LoginHandler implements HttpHandler {
         String method = httpExchange.getRequestMethod();
         HttpCookie cookie;
 
-        if (method.equals(GET_METHOD)) { ;
+        if (method.equals(GET_METHOD)) {
+
             String sessionCookie = httpExchange.getRequestHeaders().getFirst("Cookie");
-            System.out.println("Start get method");
 
             if (sessionCookie != null) {
-                System.out.println("Cookie found");
+
                 cookie = HttpCookie.parse(sessionCookie).get(0);
 
+                System.out.println("cookie value GET: " + cookie.getValue());
+
                 if (sessionsUsers.containsKey(cookie.getValue())) {
-                    System.out.println("Cookie in map");
-                    sendPersonalizedPage(httpExchange, userDAO.getById(sessionsUsers.get(sessionCookie)), cookie.getValue());
+
+                    sendPersonalizedPage(httpExchange, cookie.getValue());
                     return;
                 }
             }
-
             sendLoginPage(httpExchange);
         }
 
         if (method.equals(POST_METHOD)) {
+
             String formData = getFormData(httpExchange);
-            System.out.println("Logging in!");
 
             if (isUserLoggingIn(formData)) {
                 handleLoggingIn(httpExchange, formData);
             }
 
+            if (isUserLoggingOut(formData)) {
+                handleLoggingOut(httpExchange);
+            }
         }
-        System.out.println("Done!");
     }
 
     private void handleLoggingIn(HttpExchange httpExchange, String formData) throws IOException {
 
         HttpCookie cookie;
-        User userData = parseLoginData(formData);
-        System.out.println("Login:");
-        System.out.println(userData.getLogin());
-        System.out.println("ID:");
-        System.out.println(userData.getUserId());
 
-        if (userDAO.getUserData(userData.getPassword(), userData.getLogin()) != null) {
+        User loginData = parseLoginData(formData);
+
+
+        if (userDAO.getUserData(loginData.getPassword(), loginData.getLogin()) != null) {
 
             sessionCounter++;
 
             UUID uuid = UUID.randomUUID();
 
-            User user = userDAO.getUserData(userData.getPassword(), userData.getLogin());
+            User user = userDAO.getUserData(loginData.getPassword(), loginData.getLogin());
 
-            cookie = new HttpCookie("sessionId", uuid.toString());
+            String sessionCookie = httpExchange.getRequestHeaders().getFirst("Cookie");
+            cookie = HttpCookie.parse(sessionCookie).get(0);
 
-            httpExchange.getResponseHeaders().add("Set-Cookie", cookie.toString());
+            if (cookie == null) {
+                cookie = new HttpCookie("Cookie", uuid.toString());
+            }
 
-            sessionsUsers.put(uuid.toString(), user.getUserId());
+//                cookie = new HttpCookie("Cookie", uuid.toString());
 
+            httpExchange.getResponseHeaders().add("Set-Cookie", cookie.getValue());
 
-            System.out.println(sessionsUsers.toString());
-            sendPersonalizedPage(httpExchange, user, uuid.toString());
+            sessionsUsers.put(cookie.getValue(), user.getUserId());
+
+            sendPersonalizedPage(httpExchange, cookie.getValue());
 
         } else {
             sendLoggingErrorPage(httpExchange);
         }
+
     }
 
     private String getFormData(HttpExchange httpExchange) throws IOException {
@@ -98,11 +105,14 @@ public class LoginHandler implements HttpHandler {
         return br.readLine();
     }
 
-    private void sendPersonalizedPage(HttpExchange httpExchange, User user, String sessionId) throws IOException {
+    private void sendPersonalizedPage(HttpExchange httpExchange, String sessionId) throws IOException {
         Integer userId = sessionsUsers.get(sessionId);
+        User activeUser = userDAO.getById(userId);
+
         JtwigTemplate template = JtwigTemplate.classpathTemplate("templates/template.twig");
         JtwigModel model = JtwigModel.newModel();
-        model.with("userLogin", user.getLogin());
+        model.with("userLogin", activeUser.getLogin());
+        model.with("sessionId", sessionId);
         String response = template.render(model);
         httpExchange.sendResponseHeaders(200, response.length());
         OutputStream os = httpExchange.getResponseBody();
