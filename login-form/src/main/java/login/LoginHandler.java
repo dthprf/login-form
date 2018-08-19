@@ -1,11 +1,9 @@
 package login;
 
-import com.google.common.base.Charsets;
 import com.google.common.io.Resources;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 import login.Data.PostgresUserDAO;
-import login.Data.UserDAO;
 import login.Model.User;
 import org.jtwig.JtwigModel;
 import org.jtwig.JtwigTemplate;
@@ -18,9 +16,9 @@ import java.util.*;
 
 public class LoginHandler implements HttpHandler {
 
-    private Map<String, Integer> sessionsUsers = new HashMap<>();
-    private int sessionCounter = 0;
-    private UserDAO userDAO = new PostgresUserDAO();
+    private Map<String, String> sessionIDs = new HashMap<>();
+    private PostgresUserDAO userDAO = new PostgresUserDAO();
+    Integer sessionCounter = 0;
 
     @Override
     public void handle(HttpExchange httpExchange) throws IOException {
@@ -28,91 +26,109 @@ public class LoginHandler implements HttpHandler {
         final String GET_METHOD = "GET";
         final String POST_METHOD = "POST";
         String method = httpExchange.getRequestMethod();
-        HttpCookie cookie;
+        HttpCookie cookie = null;
+        cookie = getCookie(httpExchange, cookie);
 
         if (method.equals(GET_METHOD)) {
 
-            String sessionCookie = httpExchange.getRequestHeaders().getFirst("Cookie");
+            if(isSessionValid(sessionIDs, cookie)) {
+                String login = sessionIDs.get(cookie.toString());
+                User activeUser = userDAO.getUserByLogin(login);
+                sendPersonalizedPage(httpExchange, activeUser);
 
-            if (sessionCookie != null) {
-
-                cookie = HttpCookie.parse(sessionCookie).get(0);
-
-                System.out.println("cookie value GET: " + cookie.getValue());
-
-                if (sessionsUsers.containsKey(cookie.getValue())) {
-
-                    sendPersonalizedPage(httpExchange, cookie.getValue());
-                    return;
-                }
+            } else {
+                sendLoginPage(httpExchange);
             }
-            sendLoginPage(httpExchange);
         }
 
         if (method.equals(POST_METHOD)) {
 
-            String formData = getFormData(httpExchange);
+            if (isSessionValid(sessionIDs, cookie)) {
+                sessionIDs.remove(cookie.toString());
+                sendLoginPage(httpExchange);
 
-            if (isUserLoggingIn(formData)) {
-                handleLoggingIn(httpExchange, formData);
-            }
+            } else {
+                Map formData = getFormData(httpExchange);
+                User accessingUser = userDAO.getUserData(
+                        formData.get("login").toString(),
+                        formData.get("password").toString().hashCode());
+                User comparingUser = userDAO.getUserByLogin(formData.get("login").toString());
 
-            if (isUserLoggingOut(formData)) {
-                handleLoggingOut(httpExchange);
+                try {
+                    loginValidation(httpExchange, accessingUser, comparingUser, cookie);
+
+                } catch (IOException e) {
+                    System.out.println("An error occured.");
+                }
             }
         }
     }
 
-    private void handleLoggingIn(HttpExchange httpExchange, String formData) throws IOException {
+    private void loginValidation(HttpExchange httpExchange, User accesingUser, User userToCompare, HttpCookie cookie)
+            throws IOException {
 
-        HttpCookie cookie;
+        if (accesingUser == null || userToCompare == null) {
+            sendLoggingErrorPage(httpExchange);
+        }
 
-        User loginData = parseLoginData(formData);
-
-
-        if (userDAO.getUserData(loginData.getPassword(), loginData.getLogin()) != null) {
-
-            sessionCounter++;
-
-            UUID uuid = UUID.randomUUID();
-
-            User user = userDAO.getUserData(loginData.getPassword(), loginData.getLogin());
-
-            String sessionCookie = httpExchange.getRequestHeaders().getFirst("Cookie");
-            cookie = HttpCookie.parse(sessionCookie).get(0);
-
-            if (cookie == null) {
-                cookie = new HttpCookie("Cookie", uuid.toString());
-            }
-
-//                cookie = new HttpCookie("Cookie", uuid.toString());
-
-            httpExchange.getResponseHeaders().add("Set-Cookie", cookie.getValue());
-
-            sessionsUsers.put(cookie.getValue(), user.getUserId());
-
-            sendPersonalizedPage(httpExchange, cookie.getValue());
+        if (accesingUser.equals(userToCompare)) {
+            sessionIDs.put(cookie.toString(), accesingUser.getLogin());
+            sendPersonalizedPage(httpExchange, accesingUser);
 
         } else {
             sendLoggingErrorPage(httpExchange);
         }
-
     }
 
-    private String getFormData(HttpExchange httpExchange) throws IOException {
-        InputStreamReader isr = new InputStreamReader(httpExchange.getRequestBody(), Charsets.UTF_8);
+    private Map<String, String> getFormData(HttpExchange httpExchange) throws IOException{
+        InputStreamReader isr = new InputStreamReader(httpExchange.getRequestBody(), "utf-8");
         BufferedReader br = new BufferedReader(isr);
-        return br.readLine();
+        String formData = br.readLine();
+        Map inputs = parseFormData(formData);
+
+        return inputs;
     }
 
-    private void sendPersonalizedPage(HttpExchange httpExchange, String sessionId) throws IOException {
-        Integer userId = sessionsUsers.get(sessionId);
-        User activeUser = userDAO.getById(userId);
+    private static Map<String, String> parseFormData(String formData) throws UnsupportedEncodingException {
+        Map<String, String> map = new HashMap<>();
+        String[] pairs = formData.split("&");
 
+        for(String pair : pairs){
+            String[] keyValue = pair.split("=");
+            String value = new URLDecoder().decode(keyValue[1], "UTF-8");
+            map.put(keyValue[0], value);
+        }
+
+        return map;
+    }
+
+    private boolean isSessionValid(Map<String, String> sessionIDs, HttpCookie cookie) {
+        if(sessionIDs.containsKey(cookie.toString())) {
+            return true;
+        } else {
+            return false;
+        }
+    }
+
+    private HttpCookie getCookie(HttpExchange httpExchange, HttpCookie cookie) {
+        UUID sessionID = UUID.randomUUID();
+        String cookieStr = httpExchange.getRequestHeaders().getFirst("Cookie");
+
+        if (cookieStr != null) {
+            cookie = HttpCookie.parse(cookieStr).get(0);
+
+        } else {
+            cookie = new HttpCookie("sessionId", String.valueOf(sessionID));
+            httpExchange.getResponseHeaders().add("Set-Cookie", cookie.toString());
+        }
+
+        return cookie;
+    }
+
+    private void sendPersonalizedPage(HttpExchange httpExchange, User activeUser) throws IOException {
         JtwigTemplate template = JtwigTemplate.classpathTemplate("templates/template.twig");
         JtwigModel model = JtwigModel.newModel();
         model.with("userLogin", activeUser.getLogin());
-        model.with("sessionId", sessionId);
         String response = template.render(model);
         httpExchange.sendResponseHeaders(200, response.length());
         OutputStream os = httpExchange.getResponseBody();
@@ -128,52 +144,5 @@ public class LoginHandler implements HttpHandler {
     private void sendLoggingErrorPage(HttpExchange httpExchange) throws IOException {
         URL url = Resources.getResource("static/error.html");
         StaticHandler.sendFile(httpExchange, url);
-    }
-
-    private boolean isUserLoggingIn(String form) {
-        final String SUBMIT_LOGIN = "submit-login";
-        return form.contains(SUBMIT_LOGIN);
-    }
-
-    private boolean isUserLoggingOut(String form) {
-        final String SUBMIT_LOGOUT = "submit-logout";
-        return form.contains(SUBMIT_LOGOUT);
-    }
-
-    private void handleLoggingOut(HttpExchange httpExchange) throws IOException {
-        HttpCookie cookie;
-        String sessionCookie = httpExchange.getRequestHeaders().getFirst("Cookie");
-
-        if (sessionCookie != null) {
-            cookie = HttpCookie.parse(sessionCookie).get(0);
-            sessionsUsers.remove(cookie.getValue());
-        }
-        sendLoginPage(httpExchange);
-    }
-
-    private User parseLoginData(String formData) throws UnsupportedEncodingException {
-
-        User user = new User();
-
-        final int LOGIN_INDEX = 0;
-        final int PASSWORD_INDEX = 1;
-        final int VALUE_INDEX = 1;
-
-        String[] pairs = formData.split("&");
-        List<String> values = new ArrayList<>();
-
-        for(String pair : pairs){
-            String[] keyValue = pair.split("=");
-            values.add(URLDecoder.decode(keyValue[VALUE_INDEX], Charsets.UTF_8.displayName()));
-        }
-
-        user.setLogin(values.get(LOGIN_INDEX));
-        user.setPassword(hashPassword(values.get(PASSWORD_INDEX)));
-
-        return user;
-    }
-
-    private Integer hashPassword(String password) {
-        return password.hashCode();
     }
 }

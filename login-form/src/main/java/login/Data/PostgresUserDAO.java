@@ -1,70 +1,82 @@
 package login.Data;
 
 import login.Model.User;
-
 import java.sql.*;
 
 public class PostgresUserDAO implements UserDAO {
 
-    public User getUserData(Integer password, String login) {
+    private static final String GET_USER_BY_LOGIN =
+            "SELECT login, password\n" +
+                    "FROM userlogins\n" +
+                    "WHERE login = ?;";
 
-        User user = null;
+    private static final String GET_USER_BY_LOGIN_AND_PASSWORD =
+            "SELECT login, password\n" +
+                    "FROM userlogins\n" +
+                    "WHERE login = ? AND password = ?;";
 
-        String query = "SELECT id, login FROM userlogins WHERE login like '" + login + "' AND password=" + password + ";";
-
-        try {
-            Connection connection = DBConnection.getConnection();
-            Statement statement = connection.createStatement();
-            ResultSet resultSet = statement.executeQuery(query);
-
-            if (resultSet.next()) {
-                user = extractUser(resultSet);
-            }
-
-
-            statement.close();
-            resultSet.close();
-            connection.close();
-
-        } catch (SQLException e) {
-            e.printStackTrace();
-        }
-
-        return user;
-    }
-
-
-    public User getById(Integer id) {
-        User user = new User();
-
-        String query = "SELECT id, login FROM userlogins WHERE id =" + id;
+    public User getUserByLogin(String login) {
 
         try {
             Connection connection = DBConnection.getConnection();
-            Statement statement = connection.createStatement();
-            ResultSet resultSet = statement.executeQuery(query);
+            PreparedStatement preparedStatement = connection.prepareStatement(GET_USER_BY_LOGIN);
 
-            while (resultSet.next()) {
-                user = extractUser(resultSet);
+            preparedStatement.setString(1, login);
+
+            ResultSet resultSet = preparedStatement.executeQuery();
+
+            if(resultSet.next()) {
+                User user = extractUserFromRow(resultSet);
+                connection.close();
+                preparedStatement.close();
+                return user;
+
+            } else {
+                return null;
             }
 
-            statement.close();
-            resultSet.close();
-            connection.close();
-
-        } catch (SQLException e) {
+        } catch(SQLException e) {
             e.printStackTrace();
         }
 
-        return user;
+        return null;
     }
 
+    public User getUserData(String login, Integer password) {
 
-    private User extractUser(ResultSet resultSet) throws SQLException {
+        try {
+            Connection connection = DBConnection.getConnection();
+            PreparedStatement preparedStatement = connection.prepareStatement(GET_USER_BY_LOGIN_AND_PASSWORD);
+
+            preparedStatement.setString(1, login);
+            preparedStatement.setInt(2, password);
+
+            ResultSet resultSet = preparedStatement.executeQuery();
+
+            if(resultSet.next()) {
+                User user = extractUserFromRow(resultSet);
+                connection.close();
+                preparedStatement.close();
+                return user;
+
+            } else {
+                return null;
+            }
+
+        } catch(SQLException e) {
+            e.printStackTrace();
+        }
+
+        return null;
+    }
+
+    private User extractUserFromRow(ResultSet resultSet) throws SQLException{
+        String login = resultSet.getString("login");
+        Integer password = resultSet.getInt("password");
+
         User user = new User();
-
-        user.setUserId(resultSet.getInt("id"));
-        user.setLogin(resultSet.getString("login"));
+        user.setLogin(login);
+        user.setPassword(password);
 
         return user;
     }
